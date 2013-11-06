@@ -17,11 +17,11 @@ for CloudFlare
 
 =head1 VERSION
 
-Version 0.03
+Version 0.04
 
 =cut
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 
 =head1 SYNOPSIS
@@ -31,146 +31,51 @@ DNS records on CloudFlare.
 
     use Net::DNS::CloudFlare::DDNS;
 
-    my $ddns = Net::DNS::CloudFlare::DDNS->new();
+    my $ddns = Net::DNS::CloudFlare::DDNS->new($config);
+    my $ddns->update();
     ...
 
 =head1 METHODS
 
-=cut
+=head2 new
 
-# Cloudflare credentials
-has '_user' => (
-    is       => 'ro',
-    required => 1,
-    init_arg => 'user'
-    );
-has '_key' => (
-    is       => 'ro',
-    required => 1,
-    init_arg => 'apikey'
-    );
+Create a new Dynamic DNS updater
 
-# Cloudflare zones to update
-has '_zones' => (
-    is => 'ro',
-    required => 1,
-    init_arg => 'zones'
+    my $ddns = Net::DNS::CloudFlare::DDNS->new(
+        # Required
+        user => $cloudflare_user,
+        apikey => $cloudflare_api_key,
+        zones => $dns_zones,
+        # Optional
+        verbose => $verbosity
     );
 
-=head2 _ip
+The zones argument must look like the following
 
-    Accessor for the IP attribute
-
-=cut
-
-has '_ip' => (
-    is => 'rw',
-    default => sub { undef },
-    init_arg => undef,
-    );
-
-=head2 verbose
-
-    Accessor for verbose attribute.
-
-    Set to print status information.
-
-=cut
-
-has 'verbose' => (
-    is      => 'rw',
-    default => sub { undef },
-    );
-
-Readonly my $USER_AGENT => "DDFlare/$VERSION";
-has '_ua' => (
-    is => 'ro',
-    default => sub { 
-	Readonly my $ua => LWP::UserAgent->new;
-	$ua->agent($USER_AGENT);
-	$ua
-    },    
-    init_arg => undef
-    );
-
-=head2 BUILD
-
-    Expands subdomains to full domains and attaches domain IDs
-
-=cut
-
-sub BUILD {
-    my $self = shift;
-
-    for my $zone (@{ $self->_zones }) {
-	Readonly my $name => $zone->{zone};
-	Readonly my $domains => $zone->{domains};
-	Readonly my %ids => $self->_getDomainIds($name);
-
-	# Decorate domains
-	foreach (0 .. $#$domains) {
-	    # Expand subdomains to full domains
-	    $domains->[$_] = defined $domains->[$_] ?
-		"$domains->[$_].$name" :
-		$name;
-
-	    my $dom = $domains->[$_];
-
-	    # Attach domain IDs
-	    croak "No domain ID found for $dom in $name"
-		unless defined $ids{$dom};
-	    # Replace with a hash
-	    $domains->[$_] = {
-		name => $dom,
-		id => $ids{$dom}
-	    };
+    [
+        { 
+            zone => $zone_name_1,
+            domains => [
+                $domain_1, ..., $domain_n
+            ]
+	},
+        ...
+        { 
+            zone => $zone_name_n,
+            domains => [
+                $domain_1, ..., $domain_n
+            ]
 	}
-    }
-}
+    ]
 
-=head2 _getIP
+Each domain must be an A record within that zone, use undef for the zonne itself
 
-    Trys to grab the current IP from a number of web services
+=head2 update
 
-=cut
+Updates CloudFlare DNS with the current IP address if
+    necessary
 
-# List of http services returning just an IP
-Readonly my @IP_URLS => map { "http://$_" } (
-    'icanhazip.com',
-    'ifconfig.me/ip',
-    'curlmyip.com'
-);
-
-sub _getIp {
-    Readonly my $self => shift;
-    say 'Trying to get current IP' if $self->verbose;
-
-    # Try each service till we get an IP
-    for my $serviceUrl (@IP_URLS) {
-	say "Trying IP lookup at $serviceUrl" if $self->verbose;
-
-	Readonly my $res => $self->_ua->get($serviceUrl);
-	if($res->is_success) {
-	    # Chop off the newline
-	    my $ip = $res->decoded_content;
-	    chomp($ip);
-
-	    say "IP lookup at $serviceUrl returned $ip"
-		if $self->verbose;
-	    return $ip;
-	}
-
-	# log this lookup as failing
-	carp "IP lookup at $serviceUrl failed: ", $res->status_line;
-    }
-
-    # All lookups have failed
-    croak 'Could not lookup IP'
-}
-
-=head2 _getDomainIds
-
-    Gets and builds a map of domains to IDs for a given zone
+    $ddns->update();
 
 =cut
 
@@ -188,59 +93,6 @@ Readonly my %CLOUDFLARE_API_PARAMS => (
     type => 'type',
     ttl => 'ttl'
     ); 
-
-# This request loads all information on domains in a zone
-Readonly my $CLOUDFLARE_REQUEST_LOAD_ALL => 'rec_load_all';
-
-sub _getDomainIds {
-    Readonly my $self => shift;
-    Readonly my $zone => shift;
-    Readonly my $IDS_LOOKUP_ERROR =>
-	"Domain IDs lookup for $zone failed: ";
-
-    say "Trying domain IDs lookup for $zone" if $self->verbose;
-
-    # Query CloudFlare
-    Readonly my $res => $self->_ua->post($CLOUDFLARE_URL, {
-	$CLOUDFLARE_API_PARAMS{request} =>
-	    $CLOUDFLARE_REQUEST_LOAD_ALL,
-	$CLOUDFLARE_API_PARAMS{zone}    => $zone,
-	$CLOUDFLARE_API_PARAMS{key}     => $self->_key,
-	$CLOUDFLARE_API_PARAMS{user}    => $self->_user
-					 });
-
-     if($res->is_success) {
-	Readonly my $info =>
-	    JSON::Any->jsonToObj($res->decoded_content);
-		
-	# Return data unless failure
-	unless($info->{result} eq 'error') {
-	    # Get a hash of domain => id
-	    my %ids = map { 
-		$_->{type} eq 'A' 
-		    ? ( $_->{name} => $_->{rec_id} ) 
-		    : () 
-	    } @{ $info->{response}{recs}{objs} };
-
-	    say "Domain IDs lookup for $zone successful"
-		if $self->verbose;
-	    return %ids;
-	}
-
-	# API call failed
-	croak $IDS_LOOKUP_ERROR, $info->{msg};
-    }
-
-    # HTTP request failed
-    croak $IDS_LOOKUP_ERROR, $res->status_line;
-}
-
-=head2 update
-
-    Updates CloudFlare DNS with the current IP address if
-    necessary
-
-=cut
 
 # This request edits a record
 Readonly my $CLOUDFLARE_REQUEST_EDIT => 'rec_edit';
@@ -311,6 +163,209 @@ sub update {
     # Update IP if all updates successful, retry next time otherwise
     $self->_ip($succ ? $ip : undef);
 }
+
+=head2 verbose
+
+Accessor for verbose attribute, set to  print status information.
+
+    # Verbosity on
+    $ddns->verbose(1);
+
+    # Verbosity off
+    $ddns->verbose(undef);
+
+    # Print current verbosity
+    say $ddns->verbose;
+
+=cut
+
+has 'verbose' => (
+    is      => 'rw',
+    default => sub { undef },
+    );
+
+=head2 _ip
+
+Accessor for the IP attribute.
+
+    # Set IP
+    $ddns->_ip($ip);
+    
+    # Get IP
+    my $up = $dds->_ip;
+
+=cut
+
+=head2 _getIP
+
+Trys to grab the current IP from a number of web services
+
+    # Get current IP
+    my $ip = $ddns->_getIP;
+
+=cut
+
+# List of http services returning just an IP
+Readonly my @IP_URLS => map { "http://$_" } (
+    'icanhazip.com',
+    'ifconfig.me/ip',
+    'curlmyip.com'
+);
+
+sub _getIp {
+    Readonly my $self => shift;
+    say 'Trying to get current IP' if $self->verbose;
+
+    # Try each service till we get an IP
+    for my $serviceUrl (@IP_URLS) {
+	say "Trying IP lookup at $serviceUrl" if $self->verbose;
+
+	Readonly my $res => $self->_ua->get($serviceUrl);
+	if($res->is_success) {
+	    # Chop off the newline
+	    my $ip = $res->decoded_content;
+	    chomp($ip);
+
+	    say "IP lookup at $serviceUrl returned $ip"
+		if $self->verbose;
+	    return $ip;
+	}
+
+	# log this lookup as failing
+	carp "IP lookup at $serviceUrl failed: ", $res->status_line;
+    }
+
+    # All lookups have failed
+    croak 'Could not lookup IP'
+}
+
+=head2 _getDomainIds
+
+Gets and builds a map of domains to IDs for a given zone
+
+    # Get domain IDs
+    $ddns->_getDomainIds($zone);
+
+=cut
+
+# This request loads all information on domains in a zone
+Readonly my $CLOUDFLARE_REQUEST_LOAD_ALL => 'rec_load_all';
+
+sub _getDomainIds {
+    Readonly my $self => shift;
+    Readonly my $zone => shift;
+    Readonly my $IDS_LOOKUP_ERROR =>
+	"Domain IDs lookup for $zone failed: ";
+
+    say "Trying domain IDs lookup for $zone" if $self->verbose;
+
+    # Query CloudFlare
+    Readonly my $res => $self->_ua->post($CLOUDFLARE_URL, {
+	$CLOUDFLARE_API_PARAMS{request} =>
+	    $CLOUDFLARE_REQUEST_LOAD_ALL,
+	$CLOUDFLARE_API_PARAMS{zone}    => $zone,
+	$CLOUDFLARE_API_PARAMS{key}     => $self->_key,
+	$CLOUDFLARE_API_PARAMS{user}    => $self->_user
+					 });
+
+     if($res->is_success) {
+	Readonly my $info =>
+	    JSON::Any->jsonToObj($res->decoded_content);
+		
+	# Return data unless failure
+	unless($info->{result} eq 'error') {
+	    # Get a hash of domain => id
+	    my %ids = map { 
+		$_->{type} eq 'A' 
+		    ? ( $_->{name} => $_->{rec_id} ) 
+		    : () 
+	    } @{ $info->{response}{recs}{objs} };
+
+	    say "Domain IDs lookup for $zone successful"
+		if $self->verbose;
+	    return %ids;
+	}
+
+	# API call failed
+	croak $IDS_LOOKUP_ERROR, $info->{msg};
+    }
+
+    # HTTP request failed
+    croak $IDS_LOOKUP_ERROR, $res->status_line;
+}
+
+=head2 BUILD
+
+    Expands subdomains to full domains and attaches domain IDs
+
+=cut
+
+sub BUILD {
+    my $self = shift;
+
+    for my $zone (@{ $self->_zones }) {
+	Readonly my $name => $zone->{zone};
+	Readonly my $domains => $zone->{domains};
+	Readonly my %ids => $self->_getDomainIds($name);
+
+	# Decorate domains
+	foreach (0 .. $#$domains) {
+	    # Expand subdomains to full domains
+	    $domains->[$_] = defined $domains->[$_] ?
+		"$domains->[$_].$name" :
+		$name;
+
+	    my $dom = $domains->[$_];
+
+	    # Attach domain IDs
+	    croak "No domain ID found for $dom in $name"
+		unless defined $ids{$dom};
+	    # Replace with a hash
+	    $domains->[$_] = {
+		name => $dom,
+		id => $ids{$dom}
+	    };
+	}
+    }
+}
+
+has '_ip' => (
+    is => 'rw',
+    default => sub { undef },
+    init_arg => undef,
+    );
+
+# Read only attributes
+
+# Cloudflare credentials
+has '_user' => (
+    is       => 'ro',
+    required => 1,
+    init_arg => 'user'
+    );
+has '_key' => (
+    is       => 'ro',
+    required => 1,
+    init_arg => 'apikey'
+    );
+
+# Cloudflare zones to update
+has '_zones' => (
+    is => 'ro',
+    required => 1,
+    init_arg => 'zones'
+    );
+
+Readonly my $USER_AGENT => "DDFlare/$VERSION";
+has '_ua' => (
+    is => 'ro',
+    default => sub { 
+	Readonly my $ua => LWP::UserAgent->new;
+	$ua->agent($USER_AGENT);
+	$ua
+    },    
+    init_arg => undef
+    );
 
 =head1 AUTHOR
 

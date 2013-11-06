@@ -1,5 +1,8 @@
 Revision history for Net-DNS-CloudFlare-DDNS
 
+0.04    6/11/13
+        Sort out POD properly
+
 0.03    6/11/13
         Split into Net::DNS::CloudFlare::DDNS
 

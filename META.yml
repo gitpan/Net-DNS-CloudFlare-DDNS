@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Net-DNS-CloudFlare-DDNS
-version:            0.03
+version:            0.04
 abstract:           Object orientated Dynamic DNS interface
 author:
     - Peter Roberts <me+dev@peter-r.co.uk>
