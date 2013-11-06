@@ -17,11 +17,11 @@ for CloudFlare
 
 =head1 VERSION
 
-Version 0.04
+Version 0.05
 
 =cut
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 
 =head1 SYNOPSIS
@@ -31,7 +31,11 @@ DNS records on CloudFlare.
 
     use Net::DNS::CloudFlare::DDNS;
 
-    my $ddns = Net::DNS::CloudFlare::DDNS->new($config);
+    my $ddns = Net::DNS::CloudFlare::DDNS->new(
+        user   => $cloudflare_user,
+        apikey => $cloudflare_api_key,
+        zones  => $zones
+    );
     my $ddns->update();
     ...
 
@@ -43,9 +47,9 @@ Create a new Dynamic DNS updater
 
     my $ddns = Net::DNS::CloudFlare::DDNS->new(
         # Required
-        user => $cloudflare_user,
-        apikey => $cloudflare_api_key,
-        zones => $dns_zones,
+        user    => $cloudflare_user,
+        apikey  => $cloudflare_api_key,
+        zones   => $dns_zones,
         # Optional
         verbose => $verbosity
     );
@@ -54,21 +58,21 @@ The zones argument must look like the following
 
     [
         { 
-            zone => $zone_name_1,
+            zone    => $zone_name_1,
             domains => [
                 $domain_1, ..., $domain_n
             ]
 	},
         ...
         { 
-            zone => $zone_name_n,
+            zone    => $zone_name_n,
             domains => [
                 $domain_1, ..., $domain_n
             ]
 	}
     ]
 
-Each domain must be an A record within that zone, use undef for the zonne itself
+Each domain must be an A record within that zone, use undef for the zone itself
 
 =head2 update
 
@@ -87,17 +91,17 @@ Readonly my %CLOUDFLARE_API_PARAMS => (
     zone    => 'z',
     user    => 'email',
     key     => 'tkn',
-    domain => 'name',
-    id => 'id',
-    ip => 'content',
-    type => 'type',
-    ttl => 'ttl'
+    domain  => 'name',
+    id      => 'id',
+    ip      => 'content',
+    type    => 'type',
+    ttl     => 'ttl'
     ); 
 
 # This request edits a record
 Readonly my $CLOUDFLARE_REQUEST_EDIT => 'rec_edit';
-Readonly my $RECORD_TYPE => 'A';
-Readonly my $TTL => '1';
+Readonly my $RECORD_TYPE             => 'A';
+Readonly my $TTL                     => '1';
 
 sub update {
     Readonly my $self => shift;
@@ -127,14 +131,14 @@ sub update {
 	    Readonly my $res => $self->_ua->post($CLOUDFLARE_URL, {
 		$CLOUDFLARE_API_PARAMS{request} => 
 		    $CLOUDFLARE_REQUEST_EDIT,
-		$CLOUDFLARE_API_PARAMS{type} => $RECORD_TYPE,
-		$CLOUDFLARE_API_PARAMS{ttl} => $TTL,
-		$CLOUDFLARE_API_PARAMS{domain} => $dom->{name},
-		$CLOUDFLARE_API_PARAMS{zone} => $zone->{zone},
-		$CLOUDFLARE_API_PARAMS{id} => $dom->{id},
-		$CLOUDFLARE_API_PARAMS{user} => $self->_user,
-		$CLOUDFLARE_API_PARAMS{key} => $self->_key,
-		$CLOUDFLARE_API_PARAMS{ip} => $ip
+		$CLOUDFLARE_API_PARAMS{type}    => $RECORD_TYPE,
+		$CLOUDFLARE_API_PARAMS{ttl}     => $TTL,
+		$CLOUDFLARE_API_PARAMS{domain}  => $dom->{name},
+		$CLOUDFLARE_API_PARAMS{zone}    => $zone->{zone},
+		$CLOUDFLARE_API_PARAMS{id}      => $dom->{id},
+		$CLOUDFLARE_API_PARAMS{user}    => $self->_user,
+		$CLOUDFLARE_API_PARAMS{key}     => $self->_key,
+		$CLOUDFLARE_API_PARAMS{ip}      => $ip
 					  });
 	    
 	    if($res->is_success) {
@@ -252,8 +256,8 @@ Gets and builds a map of domains to IDs for a given zone
 Readonly my $CLOUDFLARE_REQUEST_LOAD_ALL => 'rec_load_all';
 
 sub _getDomainIds {
-    Readonly my $self => shift;
-    Readonly my $zone => shift;
+    Readonly my $self             => shift;
+    Readonly my $zone             => shift;
     Readonly my $IDS_LOOKUP_ERROR =>
 	"Domain IDs lookup for $zone failed: ";
 
@@ -304,9 +308,9 @@ sub BUILD {
     my $self = shift;
 
     for my $zone (@{ $self->_zones }) {
-	Readonly my $name => $zone->{zone};
+	Readonly my $name    => $zone->{zone};
 	Readonly my $domains => $zone->{domains};
-	Readonly my %ids => $self->_getDomainIds($name);
+	Readonly my %ids     => $self->_getDomainIds($name);
 
 	# Decorate domains
 	foreach (0 .. $#$domains) {
@@ -323,15 +327,15 @@ sub BUILD {
 	    # Replace with a hash
 	    $domains->[$_] = {
 		name => $dom,
-		id => $ids{$dom}
+		id   => $ids{$dom}
 	    };
 	}
     }
 }
 
 has '_ip' => (
-    is => 'rw',
-    default => sub { undef },
+    is       => 'rw',
+    default  => sub { undef },
     init_arg => undef,
     );
 
@@ -351,15 +355,15 @@ has '_key' => (
 
 # Cloudflare zones to update
 has '_zones' => (
-    is => 'ro',
+    is       => 'ro',
     required => 1,
     init_arg => 'zones'
     );
 
 Readonly my $USER_AGENT => "DDFlare/$VERSION";
 has '_ua' => (
-    is => 'ro',
-    default => sub { 
+    is       => 'ro',
+    default  => sub { 
 	Readonly my $ua => LWP::UserAgent->new;
 	$ua->agent($USER_AGENT);
 	$ua
