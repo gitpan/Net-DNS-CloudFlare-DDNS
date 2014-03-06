@@ -18,9 +18,9 @@ WriteMakefile(
         'Test::More' => 0,
     },
     PREREQ_PM => {
-	'Moo' => 1.003000,
+	'Moo' => 0.009013,
 	'Carp' => 1.20,
-	'LWP::UserAgent' => 6.05,
+	'LWP::UserAgent' => 6.03,
 	'JSON::Any' => 1.28,
 	'Readonly' => 1.03
     },

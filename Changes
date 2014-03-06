@@ -1,5 +1,8 @@
 Revision history for Net-DNS-CloudFlare-DDNS
 
+0.06    6/3/13
+        Lower depenency versions
+
 0.05    6/11/13
         Fix docs
         Prettify code

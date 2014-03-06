@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Net-DNS-CloudFlare-DDNS
-version:            0.05
+version:            0.06
 abstract:           Object orientated Dynamic DNS interface
 author:
     - Peter Roberts <me+dev@peter-r.co.uk>
@@ -13,8 +13,8 @@ build_requires:
 requires:
     Carp:            1.2
     JSON::Any:       1.28
-    LWP::UserAgent:  6.05
-    Moo:             1.003
+    LWP::UserAgent:  6.03
+    Moo:             0.009013
     perl:            
 
     Readonly:        1.03
