@@ -1,0 +1,82 @@
+{
+   "abstract" : "Object Orientated Dynamic DNS Interface to CloudFlare DNS",
+   "author" : [
+      "Peter Roberts <me+dev@peter-r.co.uk>"
+   ],
+   "dynamic_config" : 0,
+   "generated_by" : "Dist::Zilla version 5.020, CPAN::Meta::Converter version 2.142060",
+   "license" : [
+      "mit"
+   ],
+   "meta-spec" : {
+      "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+      "version" : "2"
+   },
+   "name" : "Net-DNS-CloudFlare-DDNS",
+   "prereqs" : {
+      "develop" : {
+         "requires" : {
+            "Pod::Coverage::TrustPod" : "0",
+            "Test::CPAN::Changes" : "0.19",
+            "Test::CPAN::Meta" : "0",
+            "Test::Kwalitee" : "1.21",
+            "Test::More" : "0",
+            "Test::NoTabs" : "0",
+            "Test::Pod" : "1.41",
+            "Test::Pod::Coverage" : "1.08",
+            "Test::Synopsis" : "0"
+         }
+      },
+      "runtime" : {
+         "requires" : {
+            "Carp" : "1.26",
+            "CloudFlare::Client" : "0",
+            "IPC::System::Simple" : "1.22",
+            "List::Util" : "1.24",
+            "Modern::Perl" : "1.20120105",
+            "Moose" : "1.22",
+            "MooseX::StrictConstructor" : "0.13",
+            "Readonly" : "1.04",
+            "TryCatch" : "1.003001",
+            "Type::Tiny" : "0.039_12",
+            "autodie" : "2.11",
+            "indirect" : "0.24",
+            "namespace::autoclean" : "0.12",
+            "perl" : "5.014"
+         }
+      },
+      "test" : {
+         "requires" : {
+            "File::Spec" : "3.40",
+            "Test::Exception" : "0.32",
+            "Try::Tiny" : "0.11",
+            "perl" : "5.014"
+         }
+      }
+   },
+   "provides" : {
+      "Net::DNS::CloudFlare::DDNS" : {
+         "file" : "lib/Net/DNS/CloudFlare/DDNS.pm",
+         "version" : "0.06_1"
+      },
+      "Net::DNS::CloudFlare::DDNS::Types" : {
+         "file" : "lib/Net/DNS/CloudFlare/DDNS/Types.pm",
+         "version" : "0.06_1"
+      }
+   },
+   "release_status" : "testing",
+   "resources" : {
+      "bugtracker" : {
+         "mailto" : "bug-net-dns-cloudflare-ddns at rt.cpan.org",
+         "web" : "http://rt.cpan.org/Public/Dist/Display.html?Name=Net-DNS-CloudFlare-DDNS"
+      },
+      "homepage" : "https://bitbucket.org/pwr22/ddflare",
+      "repository" : {
+         "type" : "git",
+         "url" : "git://git@bitbucket.org:pwr22/ddflare.git",
+         "web" : "https://bitbucket.org/pwr22/ddflare"
+      }
+   },
+   "version" : "0.06_1"
+}
+

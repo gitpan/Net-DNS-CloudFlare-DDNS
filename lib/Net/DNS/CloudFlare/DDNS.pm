@@ -1,448 +1,280 @@
 package Net::DNS::CloudFlare::DDNS;
+# ABSTRACT: Object Orientated Dynamic DNS Interface to CloudFlare DNS
 
-use v5.10;
-use strict;
-use warnings FATAL => 'all';
+use Modern::Perl '2012';
+use autodie      ':all';
+no  indirect     'fatal';
 
-use Moo;
+use namespace::autoclean;
+use Moose; use MooseX::StrictConstructor;
+use Types::Standard qw( Bool Str);
+use Net::DNS::CloudFlare::DDNS::Types qw( CloudFlareClient LWPUserAgent);
+use TryCatch;
 use Carp;
-use LWP::UserAgent;
-use JSON::Any;
 use Readonly;
 
-=head1 NAME
+use List::Util 'shuffle';
+use CloudFlare::Client;
 
-Net::DNS::CloudFlare::DDNS - Object orientated Dynamic DNS interface
-for CloudFlare
+our $VERSION = '0.06_1'; # TRIAL VERSION
 
-=head1 VERSION
+has 'verbose' => ( is => 'rw', isa => Bool);
+# CF credentials
+has '_user' => ( is => 'ro', isa => Str, required => 1, init_arg => 'user');
+has '_key' => ( is => 'ro', isa => Str, required => 1, init_arg => 'apikey');
+# Configuration of zones, and their domains, to update
+has '_config' => ( is  => 'ro', required => 1, init_arg => 'zones');
 
-Version 0.06
+# Provides CF access
+sub _buildApi { CloudFlare::Client::->new( user   => $_[0]->_user,
+                                           apikey => $_[0]->_key)}
+has '_api' => ( is => 'ro', isa => CloudFlareClient, builder => '_buildApi',
+                lazy     => 1, init_arg => undef);
 
-=cut
+# Fetch zone IDs for a single zone
+# The api call can fail and this will die
+# Returns a map of domain => id
+sub _getDomainIds {
+    Readonly my $self => shift; Readonly my $zone => shift;
 
-our $VERSION = '0.06';
-
-
-=head1 SYNOPSIS
-
-Provides an object orientated interface that can be used to dynamically update 
-DNS records on CloudFlare.
-
-    use Net::DNS::CloudFlare::DDNS;
-
-    my $ddns = Net::DNS::CloudFlare::DDNS->new(
-        user   => $cloudflare_user,
-        apikey => $cloudflare_api_key,
-        zones  => $zones
-    );
-    my $ddns->update();
-    ...
-
-=head1 METHODS
-
-=head2 new
-
-Create a new Dynamic DNS updater
-
-    my $ddns = Net::DNS::CloudFlare::DDNS->new(
-        # Required
-        user    => $cloudflare_user,
-        apikey  => $cloudflare_api_key,
-        zones   => $dns_zones,
-        # Optional
-        verbose => $verbosity
-    );
-
-The zones argument must look like the following
-
-    [
-        { 
-            zone    => $zone_name_1,
-            domains => [
-                $domain_1, ..., $domain_n
-            ]
-	},
-        ...
-        { 
-            zone    => $zone_name_n,
-            domains => [
-                $domain_1, ..., $domain_n
-            ]
-	}
-    ]
-
-Each domain must be an A record within that zone, use undef for the zone itself
-
-=head2 update
-
-Updates CloudFlare DNS with the current IP address if
-    necessary
-
-    $ddns->update();
-
-=cut
-
-# General Cloudflare API details
-Readonly my $CLOUDFLARE_URL =>
-    'https://www.cloudflare.com/api_json.html';
-Readonly my %CLOUDFLARE_API_PARAMS => (
-    request => 'a',
-    zone    => 'z',
-    user    => 'email',
-    key     => 'tkn',
-    domain  => 'name',
-    id      => 'id',
-    ip      => 'content',
-    type    => 'type',
-    ttl     => 'ttl'
-    ); 
-
-# This request edits a record
-Readonly my $CLOUDFLARE_REQUEST_EDIT => 'rec_edit';
-Readonly my $RECORD_TYPE             => 'A';
-Readonly my $TTL                     => '1';
-
-sub update {
-    Readonly my $self => shift;
-
-    # Get current IP address
-    Readonly my $ip => $self->_getIp;
-
-    # Don't update unless necessary
-    return if defined $self->_ip && $self->_ip eq $ip;
-
-    say 'Updating IPs' if $self->verbose;
-
-    # By default we succeed
-    my $succ = 1;
-    # Try to update each zone
-    for my $zone (@{ $self->_zones }) {
-	say "Updating IPs for $zone->{zone}" if $self->verbose;
-
-	for my $dom (@{ $zone->{domains} }) {
-	    Readonly my $IP_UPDATE_ERROR => 
-		"IP update failed for $dom->{name} in $zone->{zone} at $CLOUDFLARE_URL: ";
-
-	    say "Updating IP for $dom->{name} in $zone->{zone}" if 
-		$self->verbose;
-
-	    # Update IP
-	    Readonly my $res => $self->_ua->post($CLOUDFLARE_URL, {
-		$CLOUDFLARE_API_PARAMS{request} => 
-		    $CLOUDFLARE_REQUEST_EDIT,
-		$CLOUDFLARE_API_PARAMS{type}    => $RECORD_TYPE,
-		$CLOUDFLARE_API_PARAMS{ttl}     => $TTL,
-		$CLOUDFLARE_API_PARAMS{domain}  => $dom->{name},
-		$CLOUDFLARE_API_PARAMS{zone}    => $zone->{zone},
-		$CLOUDFLARE_API_PARAMS{id}      => $dom->{id},
-		$CLOUDFLARE_API_PARAMS{user}    => $self->_user,
-		$CLOUDFLARE_API_PARAMS{key}     => $self->_key,
-		$CLOUDFLARE_API_PARAMS{ip}      => $ip
-					  });
-	    
-	    if($res->is_success) {
-		Readonly my $info =>
-		    JSON::Any->jsonToObj($res->decoded_content);
-		
-		# API call failed
-		if($info->{result} eq 'error') {
-		    carp $IP_UPDATE_ERROR, $info->{msg};
-		    $succ = 0;
-		    next;
-		}
-
-		say "Updated IP for $dom->{name} in $zone->{zone} successfully"
-		    if $self->verbose;
-		next;
-	    }
-	    
-	    # HTTP request failed
-	    carp $IP_UPDATE_ERROR, $res->status_line;
-	    # Mark as failure
-	    $succ = 0;
-	}
+    # Query CloudFlare
+    say "Trying domain IDs lookup for $zone" if $self->verbose;
+    Readonly my $info => $self->_api->recLoadAll($zone);
+    # Localise hostnames to within zone, set zone itself to undef
+    my @pairs = map { /^$zone$/ ? undef : s/$zone$//r }
+                    # Filter to just A records and get a list of [domain => id]
+                    map { $_->{type} eq 'A' ? [ $_->{name} => $_->{rec_id} ]
+                                            : () } @{ $info->{recs}{objs} };
+    # Build into a hash of domain => id
+    my $map; foreach (@pairs) {
+        my ($domain, $id) = @$_;
+        carp "Duplicate domain $domain found in $zone - ",
+             'this is probably a mistake' if exists $map->{$domain};
+        $map->{$domain} = $id
     }
-
-    # Update IP if all updates successful, retry next time otherwise
-    $self->_ip($succ ? $ip : undef);
+   return $map
 }
+# Build a mapping of zones to domain ID mappings from CF
+# Zones will be missing if their fetch fails but the show must go on
+sub _buildDomIds {
+    Readonly my $self => shift;
+    # $zone is a hash of config info
+    my $map; for my $zone (@{ $self->_config }) {
+        Readonly my $name    => $zone->{zone};
+        Readonly my $domains => $zone->{domains};
+        # Try to fetch domain ids for this zone
+        my $zoneMap; try { $zoneMap = $self->_getDomainIds($name)}
+        catch (CloudFlare::Client::Exception::Upstream $e) {
+            carp "Fetching zone IDs for $name failed because the " ,
+                 'CloudFlare API threw an error: ', $e->errorCode, ' ',
+                 $e->message}
+        catch (CloudFlare::Client::Exception::Connection $e) {
+            carp "Fetching zone IDs for $zone failed because the " ,
+                 'connection to the CloudFlare API failed: ', $e->status, ' ',
+                 $e->message}
+        # Install ids into map under
+        $map->{\$_} = $zoneMap->{$_} foreach @$domains}
+    return $map
+}
+# For storing domain IDs
+# A map of domain ref => IP
+has '_domIds' => (
+    is => 'ro', init_arg => undef,
+    # Clear this and use lazy rebuilding to update IDs each run
+    clearer => '_clearDomIds', builder => '_buildDomIds', lazy => 1);
 
-=head2 verbose
+# For keeping track of what we last set the IPs to
+# A hash of domain ref -> IP
+sub _buildLastIps { {} }
+has _lastIps => ( is => 'rw', init_arg => undef, builder  => '_buildLastIps');
 
-Accessor for verbose attribute, set to  print status information.
+# Used for fetching the IP
+Readonly my $UA_STRING => __PACKAGE__ . "/$VERSION";
+sub _buildUa { Readonly my $ua => LWP::UserAgent::->new;
+               $ua->agent($UA_STRING);
+               return $ua}
+has _ua => ( is => 'ro', isa => LWPUserAgent, builder => '_buildUa',
+             init_arg => undef);
 
-    # Verbosity on
-    $ddns->verbose(1);
-
-    # Verbosity off
-    $ddns->verbose(undef);
-
-    # Print current verbosity
-    say $ddns->verbose;
-
-=cut
-
-has 'verbose' => (
-    is      => 'rw',
-    default => sub { undef },
-    );
-
-=head2 _ip
-
-Accessor for the IP attribute.
-
-    # Set IP
-    $ddns->_ip($ip);
-    
-    # Get IP
-    my $up = $dds->_ip;
-
-=cut
-
-=head2 _getIP
-
-Trys to grab the current IP from a number of web services
-
-    # Get current IP
-    my $ip = $ddns->_getIP;
-
-=cut
-
-# List of http services returning just an IP
+# Get an IP from any of a number of web services
+# each of which return just an IP
 Readonly my @IP_URLS => map { "http://$_" } (
     'icanhazip.com',
     'ifconfig.me/ip',
     'curlmyip.com'
 );
-
 sub _getIp {
     Readonly my $self => shift;
     say 'Trying to get current IP' if $self->verbose;
 
     # Try each service till we get an IP
-    for my $serviceUrl (@IP_URLS) {
-	say "Trying IP lookup at $serviceUrl" if $self->verbose;
+    # Randomised order for balancing
+    for my $serviceUrl (shuffle @IP_URLS) {
+        say "Trying IP lookup at $serviceUrl" if $self->verbose;
+        # Get and return IP
+        Readonly my $res => $self->_ua->get($serviceUrl);
+        if($res->is_success) {
+            # Chop off the newline
+            chomp(my $ip = $res->decoded_content);
+            say "IP lookup at $serviceUrl returned $ip" if $self->verbose;
+            return $ip
+        }
 
-	Readonly my $res => $self->_ua->get($serviceUrl);
-	if($res->is_success) {
-	    # Chop off the newline
-	    my $ip = $res->decoded_content;
-	    chomp($ip);
-
-	    say "IP lookup at $serviceUrl returned $ip"
-		if $self->verbose;
-	    return $ip;
-	}
-
-	# log this lookup as failing
-	carp "IP lookup at $serviceUrl failed: ", $res->status_line;
+        # log this lookup as failing
+        carp "IP lookup at $serviceUrl failed: ", $res->status_line;
     }
 
     # All lookups have failed
-    croak 'Could not lookup IP'
+    carp 'Could not lookup IP';
+    return
 }
 
-=head2 _getDomainIds
+Readonly my $REC_TYPE => 'A';
+Readonly my $TTL      => '1';
+sub update {
+    Readonly my $self => shift;
+    # Try to get the current IP address
+    carp "Cannot update records without an IP" && return unless
+        Readonly my $ip => $self->_getIp;
+    say 'Trying to update records' if $self->verbose;
 
-Gets and builds a map of domains to IDs for a given zone
-
-    # Get domain IDs
-    $ddns->_getDomainIds($zone);
-
-=cut
-
-# This request loads all information on domains in a zone
-Readonly my $CLOUDFLARE_REQUEST_LOAD_ALL => 'rec_load_all';
-
-sub _getDomainIds {
-    Readonly my $self             => shift;
-    Readonly my $zone             => shift;
-    Readonly my $IDS_LOOKUP_ERROR =>
-	"Domain IDs lookup for $zone failed: ";
-
-    say "Trying domain IDs lookup for $zone" if $self->verbose;
-
-    # Query CloudFlare
-    Readonly my $res => $self->_ua->post($CLOUDFLARE_URL, {
-	$CLOUDFLARE_API_PARAMS{request} =>
-	    $CLOUDFLARE_REQUEST_LOAD_ALL,
-	$CLOUDFLARE_API_PARAMS{zone}    => $zone,
-	$CLOUDFLARE_API_PARAMS{key}     => $self->_key,
-	$CLOUDFLARE_API_PARAMS{user}    => $self->_user
-					 });
-
-     if($res->is_success) {
-	Readonly my $info =>
-	    JSON::Any->jsonToObj($res->decoded_content);
-		
-	# Return data unless failure
-	unless($info->{result} eq 'error') {
-	    # Get a hash of domain => id
-	    my %ids = map { 
-		$_->{type} eq 'A' 
-		    ? ( $_->{name} => $_->{rec_id} ) 
-		    : () 
-	    } @{ $info->{response}{recs}{objs} };
-
-	    say "Domain IDs lookup for $zone successful"
-		if $self->verbose;
-	    return %ids;
-	}
-
-	# API call failed
-	croak $IDS_LOOKUP_ERROR, $info->{msg};
-    }
-
-    # HTTP request failed
-    croak $IDS_LOOKUP_ERROR, $res->status_line;
+    # Try to update each zone
+    for my $zone (@{ $self->_config }) {
+        # Try to update each domain
+        say "Trying to update records for $zone->{zone}" if $self->verbose;
+        for my $dom (@{ $zone->{domains} }) {
+            # Skip update unless there is a change in IP
+            do { no warnings 'uninitialized';
+                 if ($self->_lastIps->{\$dom} eq $ip) {
+                     say "IP not changed for $dom, skipping update" if
+                         $self->verbose;
+                     next}};
+            # Cannot update if domain ID couldn't be found
+            # At this point new domain IDs will be pulled in from CF
+            warn "Domain ID not found for $dom, cannot update" && next
+                unless defined $self->_domIds->{\$dom};
+            # Update IP
+            say "Trying to update IP for $dom->{name}" if $self->verbose;
+            try { $self->_api->recEdit($zone->{zone}, $REC_TYPE,
+                                       $self->_domIds->{\$dom}, $dom->{name},
+                                       $ip, $TTL);
+                  # Record the new IP - won't happen if we fail above
+                  $self->_lastIps->{\$dom} = $ip}
+            catch (CloudFlare::Client::Exception::Upstream $e) {
+                carp "Updating IP for $dom in $zone->{zone} failed ",
+                     'because the CloudFlare API threw an error: ',
+                     $e->errorCode, ' ', $e->message}
+            catch (CloudFlare::Client::Exception::Connection $e) {
+                carp "Updating IP for $dom in $zone->{zone} failed ",
+                     'because the connection to the CloudFlare API failed: ',
+                     $e->status, ' ', $e->message}}}
+    # Flush domain IDs so they're updated next run
+    $self->_clearDomIds
 }
 
-=head2 BUILD
+1; # End of Net::DNS::CloudFlare::DDNS
 
-    Expands subdomains to full domains and attaches domain IDs
+__END__
 
-=cut
+=pod
 
-sub BUILD {
-    my $self = shift;
+=encoding UTF-8
 
-    for my $zone (@{ $self->_zones }) {
-	Readonly my $name    => $zone->{zone};
-	Readonly my $domains => $zone->{domains};
-	Readonly my %ids     => $self->_getDomainIds($name);
+=head1 NAME
 
-	# Decorate domains
-	foreach (0 .. $#$domains) {
-	    # Expand subdomains to full domains
-	    $domains->[$_] = defined $domains->[$_] ?
-		"$domains->[$_].$name" :
-		$name;
+Net::DNS::CloudFlare::DDNS - Object Orientated Dynamic DNS Interface to CloudFlare DNS
 
-	    my $dom = $domains->[$_];
+=head1 VERSION
 
-	    # Attach domain IDs
-	    croak "No domain ID found for $dom in $name"
-		unless defined $ids{$dom};
-	    # Replace with a hash
-	    $domains->[$_] = {
-		name => $dom,
-		id   => $ids{$dom}
-	    };
-	}
-    }
-}
+version 0.06_1
 
-has '_ip' => (
-    is       => 'rw',
-    default  => sub { undef },
-    init_arg => undef,
+=head1 SYNOPSIS
+
+Provides an object orientated dynamic DNS interface for CloudFlare
+
+    use Net::DNS::CloudFlare::DDNS;
+
+    my $ddns = Net::DNS::CloudFlare::DDNS->new(
+        user   => $CF_USER,
+        apikey => $CF_KEY,
+        zones  => $ZONE_CONF
+    );
+    my $ddns->update();
+    ...
+
+=head1 ATTRIBUTES
+
+=head2 verbose
+
+Whether or not the object should be verbose
+
+    # Verbosity on
+    $ddns->verbose(1);
+
+    # Verbosity off
+    $ddns->verbose(0);
+
+    # Print current verbosity
+    say $ddns->verbose;
+
+=head1 METHODS
+
+=head2 new
+
+Create a new Dynamic DNS object
+
+    my $ddns = Net::DNS::CloudFlare::DDNS->new(
+        # Required
+        user    => $CF_USER,
+        apikey  => $CF_KEY,
+        zones   => $ZONE_CONF,
+        # Optional
+        verbose => $VERB_LVL
     );
 
-# Read only attributes
+The zones specifies the zones and records which will be updated. Its structure
+is as follows
 
-# Cloudflare credentials
-has '_user' => (
-    is       => 'ro',
-    required => 1,
-    init_arg => 'user'
-    );
-has '_key' => (
-    is       => 'ro',
-    required => 1,
-    init_arg => 'apikey'
-    );
+    # Array of
+    [
+        # Hashes of
+        {
+            # DNS Zone
+            zone    => $zone_name_1,
+            # Domains to be updated in this zone
+            domains => [
+                $domain_1, ..., $domain_n
+            ]
+        },
+        ...
+        {
+            zone    => $zone_name_n,
+            domains => [
+                $domain_1, ..., $domain_n
+            ]
+        }
+    ]
 
-# Cloudflare zones to update
-has '_zones' => (
-    is       => 'ro',
-    required => 1,
-    init_arg => 'zones'
-    );
+Each domain is an A record within a zone or undef for the zone itself
 
-Readonly my $USER_AGENT => "DDFlare/$VERSION";
-has '_ua' => (
-    is       => 'ro',
-    default  => sub { 
-	Readonly my $ua => LWP::UserAgent->new;
-	$ua->agent($USER_AGENT);
-	$ua
-    },    
-    init_arg => undef
-    );
+=head2 update
+
+Updates CloudFlare DNS with the current IP address if necessary
+
+    $ddns->update
+
+=for test_synopsis my ($CF_USER, $CF_KEY, $ZONE_CONF);
 
 =head1 AUTHOR
 
-Peter Roberts, C<< <me+dev at peter-r.co.uk> >>
+Peter Roberts <me+dev@peter-r.co.uk>
 
-=head1 BUGS
+=head1 COPYRIGHT AND LICENSE
 
-Please report any bugs or feature requests to C<bug-net-dns-cloudflare-ddns at rt.cpan.org>, or through
-the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-DNS-CloudFlare-DDNS>.
-I will be notified, and then you'll automatically be notified of progress on your bug as I make changes.
+This software is Copyright (c) 2014 by Peter Roberts.
 
-=head1 SUPPORT
+This is free software, licensed under:
 
-You can find documentation for this module with the perldoc command.
-
-    perldoc Net::DNS::CloudFlare::DDNS
-
-
-You can also look for information at:
-
-=over 4
-
-=item * DDFlare
-
-L<https://bitbucket.org/pwr22/ddflare>
-
-=item * RT: CPAN's request tracker (report bugs here)
-
-L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=Net-DNS-CloudFlare-DDNS>
-
-=item * AnnoCPAN: Annotated CPAN documentation
-
-L<http://annocpan.org/dist/Net-DNS-CloudFlare-DDNS>
-
-=item * CPAN Ratings
-
-L<http://cpanratings.perl.org/d/Net-DNS-CloudFlare-DDNS>
-
-=item * Search CPAN
-
-L<http://search.cpan.org/dist/Net-DNS-CloudFlare-DDNS/>
-
-=back
-
-=head1 LICENSE AND COPYRIGHT
-
-Copyright 2013 Peter Roberts.
-
-This program is distributed under the MIT (X11) License:
-L<http://www.opensource.org/licenses/mit-license.php>
-
-Permission is hereby granted, free of charge, to any person
-obtaining a copy of this software and associated documentation
-files (the "Software"), to deal in the Software without
-restriction, including without limitation the rights to use,
-copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the
-Software is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
-OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-OTHER DEALINGS IN THE SOFTWARE.
-
+  The MIT (X11) License
 
 =cut
-
-1; # End of Net::DNS::CloudFlare::DDNS
