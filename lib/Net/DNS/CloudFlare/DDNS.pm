@@ -7,7 +7,7 @@ no  indirect     'fatal';
 
 use namespace::autoclean;
 use Moose; use MooseX::StrictConstructor;
-use Types::Standard qw( Bool Str);
+use Types::Standard                   qw( Bool Str);
 use Net::DNS::CloudFlare::DDNS::Types qw( CloudFlareClient LWPUserAgent);
 use TryCatch;
 use Carp;
@@ -16,12 +16,12 @@ use Readonly;
 use List::Util 'shuffle';
 use CloudFlare::Client;
 
-our $VERSION = '0.06_1'; # TRIAL VERSION
+our $VERSION = '0.06_2'; # TRIAL VERSION
 
 has 'verbose' => ( is => 'rw', isa => Bool);
 # CF credentials
 has '_user' => ( is => 'ro', isa => Str, required => 1, init_arg => 'user');
-has '_key' => ( is => 'ro', isa => Str, required => 1, init_arg => 'apikey');
+has '_key' => (  is => 'ro', isa => Str, required => 1, init_arg => 'apikey');
 # Configuration of zones, and their domains, to update
 has '_config' => ( is  => 'ro', required => 1, init_arg => 'zones');
 
@@ -29,7 +29,7 @@ has '_config' => ( is  => 'ro', required => 1, init_arg => 'zones');
 sub _buildApi { CloudFlare::Client::->new( user   => $_[0]->_user,
                                            apikey => $_[0]->_key)}
 has '_api' => ( is => 'ro', isa => CloudFlareClient, builder => '_buildApi',
-                lazy     => 1, init_arg => undef);
+                lazy => 1, init_arg => undef);
 
 # Fetch zone IDs for a single zone
 # The api call can fail and this will die
@@ -40,19 +40,20 @@ sub _getDomainIds {
     # Query CloudFlare
     say "Trying domain IDs lookup for $zone" if $self->verbose;
     Readonly my $info => $self->_api->recLoadAll($zone);
+    # Filter to just A records and get a list of [domain => id]
+    my @pairs = map { $_->{type} eq 'A' ? [ $_->{name} => $_->{rec_id} ]
+                                        : () } @{ $info->{recs}{objs}};
     # Localise hostnames to within zone, set zone itself to undef
-    my @pairs = map { /^$zone$/ ? undef : s/$zone$//r }
-                    # Filter to just A records and get a list of [domain => id]
-                    map { $_->{type} eq 'A' ? [ $_->{name} => $_->{rec_id} ]
-                                            : () } @{ $info->{recs}{objs} };
+    map { $_->[0] eq $zone ? $_->[0] = undef : $_->[0] =~ s/\.$zone$//}
+        @pairs;
+
     # Build into a hash of domain => id
     my $map; foreach (@pairs) {
         my ($domain, $id) = @$_;
         carp "Duplicate domain $domain found in $zone - ",
              'this is probably a mistake' if exists $map->{$domain};
-        $map->{$domain} = $id
-    }
-   return $map
+        $map->{$domain} = $id}
+    return $map
 }
 # Build a mapping of zones to domain ID mappings from CF
 # Zones will be missing if their fetch fails but the show must go on
@@ -101,8 +102,7 @@ has _ua => ( is => 'ro', isa => LWPUserAgent, builder => '_buildUa',
 Readonly my @IP_URLS => map { "http://$_" } (
     'icanhazip.com',
     'ifconfig.me/ip',
-    'curlmyip.com'
-);
+    'curlmyip.com');
 sub _getIp {
     Readonly my $self => shift;
     say 'Trying to get current IP' if $self->verbose;
@@ -119,14 +119,11 @@ sub _getIp {
             say "IP lookup at $serviceUrl returned $ip" if $self->verbose;
             return $ip
         }
-
-        # log this lookup as failing
+        # Else log this lookup as failing and try another service
         carp "IP lookup at $serviceUrl failed: ", $res->status_line;
     }
-
     # All lookups have failed
-    carp 'Could not lookup IP';
-    return
+    carp 'Could not lookup IP'; return
 }
 
 Readonly my $REC_TYPE => 'A';
@@ -134,10 +131,8 @@ Readonly my $TTL      => '1';
 sub update {
     Readonly my $self => shift;
     # Try to get the current IP address
-    carp "Cannot update records without an IP" && return unless
+    carp "Cannot update records without an IP" and return unless
         Readonly my $ip => $self->_getIp;
-    say 'Trying to update records' if $self->verbose;
-
     # Try to update each zone
     for my $zone (@{ $self->_config }) {
         # Try to update each domain
@@ -151,10 +146,10 @@ sub update {
                      next}};
             # Cannot update if domain ID couldn't be found
             # At this point new domain IDs will be pulled in from CF
-            warn "Domain ID not found for $dom, cannot update" && next
+            warn "Domain ID not found for $dom, cannot update" and next
                 unless defined $self->_domIds->{\$dom};
             # Update IP
-            say "Trying to update IP for $dom->{name}" if $self->verbose;
+            say "Trying to update IP for $dom" if $self->verbose;
             try { $self->_api->recEdit($zone->{zone}, $REC_TYPE,
                                        $self->_domIds->{\$dom}, $dom->{name},
                                        $ip, $TTL);
@@ -186,7 +181,7 @@ Net::DNS::CloudFlare::DDNS - Object Orientated Dynamic DNS Interface to CloudFla
 
 =head1 VERSION
 
-version 0.06_1
+version 0.06_2
 
 =head1 SYNOPSIS
 

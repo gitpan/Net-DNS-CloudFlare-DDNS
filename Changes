@@ -1,5 +1,8 @@
 Revision history for Net-DNS-CloudFlare-DDNS
 
+0.06_2    2014-08-26
+ - Fix bugs
+
 0.06_1    2014-08-19
  - Moo -> Moose
  - add no indirect 'fatal'
