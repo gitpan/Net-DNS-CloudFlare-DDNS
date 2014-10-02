@@ -1,5 +1,9 @@
 Revision history for Net-DNS-CloudFlare-DDNS
 
+0.06_3    2014-10-02
+ - Bits and bobs
+ - Update repo info - git repo split
+
 0.06_2    2014-08-26
  - Fix bugs
 

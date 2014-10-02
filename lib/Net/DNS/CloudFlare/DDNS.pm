@@ -4,8 +4,8 @@ package Net::DNS::CloudFlare::DDNS;
 use Modern::Perl '2012';
 use autodie      ':all';
 no  indirect     'fatal';
-
 use namespace::autoclean;
+
 use Moose; use MooseX::StrictConstructor;
 use Types::Standard                   qw( Bool Str);
 use Net::DNS::CloudFlare::DDNS::Types qw( CloudFlareClient LWPUserAgent);
@@ -16,7 +16,7 @@ use Readonly;
 use List::Util 'shuffle';
 use CloudFlare::Client;
 
-our $VERSION = '0.06_2'; # TRIAL VERSION
+our $VERSION = '0.06_3'; # TRIAL VERSION
 
 has 'verbose' => ( is => 'rw', isa => Bool);
 # CF credentials
@@ -70,7 +70,7 @@ sub _buildDomIds {
                  'CloudFlare API threw an error: ', $e->errorCode, ' ',
                  $e->message}
         catch (CloudFlare::Client::Exception::Connection $e) {
-            carp "Fetching zone IDs for $zone failed because the " ,
+            carp "Fetching zone IDs for $name failed because the " ,
                  'connection to the CloudFlare API failed: ', $e->status, ' ',
                  $e->message}
         # Install ids into map under
@@ -151,7 +151,7 @@ sub update {
             # Update IP
             say "Trying to update IP for $dom" if $self->verbose;
             try { $self->_api->recEdit($zone->{zone}, $REC_TYPE,
-                                       $self->_domIds->{\$dom}, $dom->{name},
+                                       $self->_domIds->{\$dom}, $dom,
                                        $ip, $TTL);
                   # Record the new IP - won't happen if we fail above
                   $self->_lastIps->{\$dom} = $ip}
@@ -181,7 +181,7 @@ Net::DNS::CloudFlare::DDNS - Object Orientated Dynamic DNS Interface to CloudFla
 
 =head1 VERSION
 
-version 0.06_2
+version 0.06_3
 
 =head1 SYNOPSIS
 
@@ -259,6 +259,12 @@ Updates CloudFlare DNS with the current IP address if necessary
     $ddns->update
 
 =for test_synopsis my ($CF_USER, $CF_KEY, $ZONE_CONF);
+
+=head1 BUGS
+
+Please report any bugs or feature requests to C<bug-net-dns-cloudflare-ddns
+at rt.cpan.org>, or through the web interface at
+L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-DNS-CloudFlare-DDNS>
 
 =head1 AUTHOR
 

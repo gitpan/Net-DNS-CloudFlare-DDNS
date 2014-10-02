@@ -10,7 +10,7 @@ use Type::Library -base;
 # Theres a bug about using undef as a hashref before this version
 use Type::Utils 0.039_12 -all;
 
-our $VERSION = '0.06_2'; # TRIAL VERSION
+our $VERSION = '0.06_3'; # TRIAL VERSION
 
 class_type 'CloudFlare::Client';
 class_type 'LWP::UserAgent';
@@ -29,7 +29,7 @@ Net::DNS::CloudFlare::DDNS::Types - Types for Net::DNS::CloudFlare::DDNS
 
 =head1 VERSION
 
-version 0.06_2
+version 0.06_3
 
 =head1 SYNOPSIS
 

@@ -17,10 +17,10 @@ name: Net-DNS-CloudFlare-DDNS
 provides:
   Net::DNS::CloudFlare::DDNS:
     file: lib/Net/DNS/CloudFlare/DDNS.pm
-    version: 0.06_2
+    version: 0.06_3
   Net::DNS::CloudFlare::DDNS::Types:
     file: lib/Net/DNS/CloudFlare/DDNS/Types.pm
-    version: 0.06_2
+    version: 0.06_3
 requires:
   Carp: '1.26'
   CloudFlare::Client: '0'
@@ -38,6 +38,6 @@ requires:
   perl: '5.014'
 resources:
   bugtracker: http://rt.cpan.org/Public/Dist/Display.html?Name=Net-DNS-CloudFlare-DDNS
-  homepage: https://bitbucket.org/pwr22/ddflare
-  repository: git://git@bitbucket.org:pwr22/ddflare.git
-version: 0.06_2
+  homepage: https://bitbucket.org/pwr22/net-dns-cloudflare-ddns
+  repository: git://git@bitbucket.org:pwr22/net-dns-cloudflare-ddns.git
+version: 0.06_3

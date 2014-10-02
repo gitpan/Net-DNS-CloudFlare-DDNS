@@ -57,11 +57,11 @@
    "provides" : {
       "Net::DNS::CloudFlare::DDNS" : {
          "file" : "lib/Net/DNS/CloudFlare/DDNS.pm",
-         "version" : "0.06_2"
+         "version" : "0.06_3"
       },
       "Net::DNS::CloudFlare::DDNS::Types" : {
          "file" : "lib/Net/DNS/CloudFlare/DDNS/Types.pm",
-         "version" : "0.06_2"
+         "version" : "0.06_3"
       }
    },
    "release_status" : "testing",
@@ -70,13 +70,13 @@
          "mailto" : "bug-net-dns-cloudflare-ddns at rt.cpan.org",
          "web" : "http://rt.cpan.org/Public/Dist/Display.html?Name=Net-DNS-CloudFlare-DDNS"
       },
-      "homepage" : "https://bitbucket.org/pwr22/ddflare",
+      "homepage" : "https://bitbucket.org/pwr22/net-dns-cloudflare-ddns",
       "repository" : {
          "type" : "git",
-         "url" : "git://git@bitbucket.org:pwr22/ddflare.git",
-         "web" : "https://bitbucket.org/pwr22/ddflare"
+         "url" : "git://git@bitbucket.org:pwr22/net-dns-cloudflare-ddns.git",
+         "web" : "https://bitbucket.org/pwr22/net-dns-cloudflare-ddns"
       }
    },
-   "version" : "0.06_2"
+   "version" : "0.06_3"
 }
 
